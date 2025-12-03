@@ -1,0 +1,261 @@
+---
+version: 2
+plan:
+  project-key: ADGEXT
+  key: BETESTSPECS
+  name: browser extension - test
+variables:
+  # playwright is needed for integration tests after build
+  dockerPlaywright: secureall/playwright-runner:22.17--1.53.2--1
+
+stages:
+  - Test build:
+      manual: false
+      final: false
+      jobs:
+        - Test dev build
+        - Build chrome crx artifact
+  - Tests:
+      manual: false
+      final: false
+      jobs:
+        - Lint
+        - Unit tests
+        - Integration tests
+
+Test dev build:
+  key: TESTDEVBUILD
+  other:
+    clean-working-dir: true
+  docker: &docker
+    image: ${bamboo.dockerPlaywright}
+    volumes:
+      ${system.PNPM_DIR}: "${bamboo.cachePnpm}"
+  tasks:
+    - checkout:
+        force-clean-build: true
+    - script:
+        interpreter: SHELL
+        scripts:
+          - ./bamboo-specs/scripts/link-tsurlfilter.sh --with-agtree
+    - script:
+        interpreter: SHELL
+        scripts:
+          - |-
+            set -x
+            set -e
+            ls -la
+
+            # Fix mixed logs
+            exec 2>&1
+
+            # Set cache directory
+            pnpm config set store-dir ${bamboo.cachePnpm}
+
+            pnpm install ${bamboo.varsPnpm}
+
+            # Create dev build
+            pnpm dev
+
+            # Create artifacts directory if it doesn't exist
+            mkdir -p artifacts
+
+            # Move all artifacts to the artifacts directory.
+            mv build/dev/build.txt artifacts/
+            # Add postfix to all zip files for easier identification target env.
+            mv build/dev/chrome.zip artifacts/chrome-dev.zip
+            mv build/dev/chrome-mv3.zip artifacts/chrome-mv3-dev.zip
+            mv build/dev/edge.zip artifacts/edge-dev.zip
+            mv build/dev/firefox-amo.zip artifacts/firefox-amo-dev.zip
+            mv build/dev/firefox-standalone.zip artifacts/firefox-standalone-dev.zip
+            mv build/dev/opera.zip artifacts/opera-dev.zip
+  # IMPORTANT: run clean after each job, since each job is run in a separate
+  # directory and we want to clean up after each job.
+  final-tasks:
+    - script:
+        interpreter: SHELL
+        scripts:
+          - "./bamboo-specs/scripts/cleanup.sh artifacts/build.txt,artifacts/chrome-dev.zip,artifacts/chrome-mv3-dev.zip,artifacts/edge-dev.zip,artifacts/firefox-amo-dev.zip,artifacts/firefox-standalone-dev.zip,artifacts/opera-dev.zip"
+  artifacts:
+    - name: build.txt
+      location: artifacts
+      pattern: build.txt
+      required: true
+    - name: chrome-dev.zip
+      location: artifacts
+      pattern: chrome-dev.zip
+      required: true
+    - name: chrome-mv3-dev.zip
+      location: artifacts
+      pattern: chrome-mv3-dev.zip
+      required: true
+      # Mark it shared to download from stages for tests
+      shared: true
+    - name: edge-dev.zip
+      location: artifacts
+      pattern: edge-dev.zip
+      required: true
+    - name: firefox-amo-dev.zip
+      location: artifacts
+      pattern: firefox-amo-dev.zip
+      required: true
+    - name: firefox-standalone-dev.zip
+      location: artifacts
+      pattern: firefox-standalone-dev.zip
+      required: true
+    - name: opera-dev.zip
+      location: artifacts
+      pattern: opera-dev.zip
+      required: true
+  requirements: &requirements
+    - adg-docker: 'true'
+    - extension: 'true'
+
+Build chrome crx artifact:
+  key: BUILDCHROMECRX
+  other:
+    clean-working-dir: true
+  docker: *docker
+  tasks:
+    - checkout:
+        force-clean-build: true
+    - script:
+        interpreter: SHELL
+        scripts:
+          - ./bamboo-specs/scripts/link-tsurlfilter.sh --with-agtree
+    - script:
+        scripts:
+          - |-
+            set -x
+            set -e
+            ls -la
+
+            # Fix mixed logs
+            exec 2>&1
+
+            # Create artifacts directory first thing to ensure it exists
+            mkdir -p artifacts
+
+            # Set cache directory
+            pnpm config set store-dir ${bamboo.cachePnpm}
+
+            pnpm install ${bamboo.varsPnpm}
+
+            # Create dev build
+            pnpm dev chrome-crx
+
+            # Add postfix to the built file for easier identification target env
+            mv build/dev/chrome.crx artifacts/chrome-dev.crx
+  final-tasks:
+    - script:
+        interpreter: SHELL
+        scripts:
+          - "./bamboo-specs/scripts/cleanup.sh artifacts/chrome-dev.crx"
+  artifacts:
+    - name: chrome-dev.crx
+      location: artifacts
+      pattern: chrome-dev.crx
+      required: true
+  requirements: *requirements
+
+Lint:
+  key: LINT
+  other:
+    clean-working-dir: true
+  docker: *docker
+  tasks:
+    - script:
+        interpreter: SHELL
+        scripts:
+          - ./bamboo-specs/scripts/link-tsurlfilter.sh --with-agtree
+    - script:
+        interpreter: SHELL
+        scripts:
+          - |-
+            set -x
+            set -e
+            ls -la
+
+            # Fix mixed logs
+            exec 2>&1
+
+            # Set cache directory
+            pnpm config set store-dir ${bamboo.cachePnpm}
+
+            pnpm install ${bamboo.varsPnpm}
+
+            ./bamboo-specs/scripts/timeout-wrapper.sh 120s pnpm lint
+  final-tasks:
+    - script: &cleanup-script
+        interpreter: SHELL
+        scripts:
+          - "./bamboo-specs/scripts/cleanup.sh"
+  requirements: *requirements
+
+Unit tests:
+  key: UNITTESTS
+  other:
+    clean-working-dir: true
+  docker: *docker
+  tasks:
+    - script:
+        interpreter: SHELL
+        scripts:
+          - ./bamboo-specs/scripts/link-tsurlfilter.sh --with-agtree
+    - script:
+        interpreter: SHELL
+        scripts:
+          - |-
+            set -x
+            set -e
+            ls -la
+
+            # Fix mixed logs
+            exec 2>&1
+
+            # Set cache directory
+            pnpm config set store-dir ${bamboo.cachePnpm}
+
+            pnpm install ${bamboo.varsPnpm}
+
+            ./bamboo-specs/scripts/timeout-wrapper.sh 300s pnpm test:ci
+  final-tasks:
+    - test-parser:
+        type: junit
+        test-results: 'tests-reports/unit-tests-mv*.xml'
+    - script: *cleanup-script
+  requirements: *requirements
+
+Integration tests:
+  key: INTEGRATIONTESTS
+  other:
+    clean-working-dir: true
+  docker: *docker
+  tasks:
+    - artifact-download:
+        artifacts:
+          - name: chrome-mv3-dev.zip
+    - script:
+        interpreter: SHELL
+        scripts:
+          - |-
+            # Call the common script with timeout
+            ./bamboo-specs/scripts/timeout-wrapper.sh 300s bash ./bamboo-specs/scripts/integration-tests.sh dev
+  final-tasks:
+    - test-parser:
+        type: junit
+        test-results: 'tests-reports/integration-tests-*.xml'
+    - script: *cleanup-script
+  requirements: *requirements
+
+branches:
+  create: for-pull-request
+  delete:
+    after-deleted-days: '1'
+    after-inactive-days: '5'
+  link-to-jira: true
+
+notifications: []
+labels: []
+other:
+  concurrent-build-plugin: system-default

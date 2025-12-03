@@ -1,0 +1,17 @@
+{
+  "addons": {
+    "securealladblockerbeta@secureall.local": {
+      "updates": [
+        {
+          "version": "%VERSION%",
+          "update_link": "https://static.adtidy.org/extensions/securealladblocker/beta/firefox.xpi",
+          "browser_specific_settings": {
+            "gecko": {
+              "strict_min_version": "78.0"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
